@@ -1,0 +1,78 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Restaurant {
+  id           String           @id @default(cuid())
+  name         String
+  address      String
+  phone        String
+  hoursJson    String
+  policiesJson String
+  patchMode    String           @default("low_score")
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+  menuItems    MenuItem[]
+  conversations Conversation[]
+  policyVersions PolicyVersion[]
+}
+
+model MenuItem {
+  id           String     @id @default(cuid())
+  restaurantId String
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id])
+  name         String
+  description  String
+  price        Float
+  allergensJson String
+  tagsJson      String
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+}
+
+model Conversation {
+  id           String     @id @default(cuid())
+  restaurantId String
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id])
+  createdAt    DateTime   @default(now())
+  title        String?
+  messages     Message[]
+}
+
+model Message {
+  id             String       @id @default(cuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id])
+  role           String
+  content        String
+  createdAt      DateTime     @default(now())
+  scoreTotal     Int?
+  evalJson       String?
+  safetyFlag     Boolean      @default(false)
+  artifacts      Artifact[]
+}
+
+model PolicyVersion {
+  id           String     @id @default(cuid())
+  restaurantId String
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id])
+  version      Int
+  policyJson   String
+  createdAt    DateTime   @default(now())
+  isActive     Boolean    @default(false)
+}
+
+model Artifact {
+  id           String   @id @default(cuid())
+  messageId    String
+  message      Message  @relation(fields: [messageId], references: [id])
+  type         String
+  mimeType     String
+  contentBase64 String
+  createdAt    DateTime @default(now())
+}
