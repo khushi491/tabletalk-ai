@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { Send, User, Bot, Loader2, Volume2, VolumeX } from 'lucide-react';
+import { Send, User, Bot, Loader2, Volume2, VolumeX, Mic, MicOff } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 /** Part that has text (e.g. text, reasoning) */
@@ -80,9 +80,73 @@ interface ChatWithTransportProps {
   conversationId: string;
 }
 
+type SpeechRecognitionResultList = Array<{ length: number; isFinal: boolean; 0: { transcript: string } }>;
+type SpeechRecognitionConstructor = new () => {
+  start: () => void;
+  stop: () => void;
+  abort: () => void;
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  onresult: ((event: { results: SpeechRecognitionResultList }) => void) | null;
+  onend: (() => void) | null;
+  onerror: (() => void) | null;
+};
+
+function getSpeechRecognition(): SpeechRecognitionConstructor | null {
+  if (typeof window === 'undefined') return null;
+  return (window as unknown as { SpeechRecognition?: SpeechRecognitionConstructor; webkitSpeechRecognition?: SpeechRecognitionConstructor }).SpeechRecognition
+    || (window as unknown as { webkitSpeechRecognition?: SpeechRecognitionConstructor }).webkitSpeechRecognition
+    || null;
+}
+
 function ChatWithTransport({ restaurantId, conversationId }: ChatWithTransportProps) {
   const [inputValue, setInputValue] = useState('');
   const [isVoiceEnabled, setIsVoiceEnabled] = useState(true);
+  const [isListening, setIsListening] = useState(false);
+  const [isSpeechSupported, setIsSpeechSupported] = useState(false);
+  const recognitionRef = useRef<InstanceType<SpeechRecognitionConstructor> | null>(null);
+
+  useEffect(() => {
+    setIsSpeechSupported(Boolean(getSpeechRecognition()));
+  }, []);
+
+  const startListening = () => {
+    const SpeechRecognition = getSpeechRecognition();
+    if (!SpeechRecognition || isLoading) return;
+    const recognition = new SpeechRecognition();
+    recognition.continuous = false;
+    recognition.interimResults = true;
+    recognition.lang = 'en-US';
+    recognition.onresult = (event: { results: SpeechRecognitionResultList }) => {
+      const results = event.results;
+      const transcript = Array.from(results)
+        .map((r) => r[0].transcript)
+        .join('');
+      if (results[results.length - 1].isFinal) {
+        setInputValue((prev) => (prev ? `${prev} ${transcript}` : transcript).trim());
+      }
+    };
+    recognition.onend = () => setIsListening(false);
+    recognition.onerror = () => setIsListening(false);
+    recognitionRef.current = recognition;
+    recognition.start();
+    setIsListening(true);
+  };
+
+  const stopListening = () => {
+    if (recognitionRef.current) {
+      recognitionRef.current.stop();
+      recognitionRef.current = null;
+    }
+    setIsListening(false);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (recognitionRef.current) recognitionRef.current.abort();
+    };
+  }, []);
 
   const playText = async (text: string) => {
     if (!isVoiceEnabled) return;
@@ -236,6 +300,23 @@ function ChatWithTransport({ restaurantId, conversationId }: ChatWithTransportPr
             autoFocus
             disabled={isLoading}
           />
+          {isSpeechSupported && (
+            <Button
+              type="button"
+              variant={isListening ? 'default' : 'outline'}
+              size="icon"
+              onClick={isListening ? stopListening : startListening}
+              disabled={isLoading}
+              title={isListening ? 'Stop listening' : 'Speak'}
+            >
+              {isListening ? (
+                <MicOff className="h-4 w-4" />
+              ) : (
+                <Mic className="h-4 w-4" />
+              )}
+              <span className="sr-only">{isListening ? 'Stop listening' : 'Speak'}</span>
+            </Button>
+          )}
           <Button
             type="submit"
             size="icon"
