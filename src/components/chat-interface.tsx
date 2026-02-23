@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Send, User, Bot, Loader2 } from 'lucide-react';
+import { Send, User, Bot, Loader2, Volume2, VolumeX } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface ChatInterfaceProps {
@@ -17,14 +17,42 @@ interface ChatInterfaceProps {
 
 export function ChatInterface({ restaurantId }: ChatInterfaceProps) {
   const [inputValue, setInputValue] = useState('');
+  const [isVoiceEnabled, setIsVoiceEnabled] = useState(true);
   
+  const playText = async (text: string) => {
+    if (!isVoiceEnabled) return;
+    try {
+      const response = await fetch('/api/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      });
+      if (!response.ok) throw new Error('TTS failed');
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      audio.play();
+    } catch (error) {
+      console.error('Audio playback error:', error);
+    }
+  };
+
   const transport = useMemo(() => new TextStreamChatTransport({
     api: '/api/chat',
     body: { restaurantId }
   }), [restaurantId]);
 
   const { messages, sendMessage, status } = useChat({
-    transport
+    transport,
+    onFinish: ({ message }) => {
+      if (message.role === 'assistant') {
+        const text = message.parts
+          .filter(p => p.type === 'text')
+          .map(p => (p as any).text)
+          .join(' ');
+        if (text) playText(text);
+      }
+    }
   });
 
   const isLoading = status === 'submitted' || status === 'streaming';
@@ -44,7 +72,7 @@ export function ChatInterface({ restaurantId }: ChatInterfaceProps) {
 
   return (
     <Card className="flex flex-col h-full border-0 shadow-none sm:border sm:shadow-sm">
-      <CardHeader className="border-b px-6 py-4">
+      <CardHeader className="border-b px-6 py-4 flex flex-row items-center justify-between">
         <CardTitle className="flex items-center gap-2">
           <Avatar className="h-8 w-8">
             <AvatarImage src="/bot-avatar.png" />
@@ -55,6 +83,14 @@ export function ChatInterface({ restaurantId }: ChatInterfaceProps) {
             <span className="block text-xs font-normal text-muted-foreground">Always here to help</span>
           </div>
         </CardTitle>
+        <Button 
+          variant="ghost" 
+          size="icon" 
+          onClick={() => setIsVoiceEnabled(!isVoiceEnabled)}
+          title={isVoiceEnabled ? "Disable Voice" : "Enable Voice"}
+        >
+          {isVoiceEnabled ? <Volume2 className="h-5 w-5" /> : <VolumeX className="h-5 w-5" />}
+        </Button>
       </CardHeader>
 
       <CardContent className="flex-1 p-0 overflow-hidden relative">
