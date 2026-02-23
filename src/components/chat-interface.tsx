@@ -95,9 +95,24 @@ type SpeechRecognitionConstructor = new () => {
 
 function getSpeechRecognition(): SpeechRecognitionConstructor | null {
   if (typeof window === 'undefined') return null;
-  return (window as unknown as { SpeechRecognition?: SpeechRecognitionConstructor; webkitSpeechRecognition?: SpeechRecognitionConstructor }).SpeechRecognition
-    || (window as unknown as { webkitSpeechRecognition?: SpeechRecognitionConstructor }).webkitSpeechRecognition
-    || null;
+  const w = window as unknown as {
+    SpeechRecognition?: SpeechRecognitionConstructor;
+    webkitSpeechRecognition?: SpeechRecognitionConstructor;
+    isSecureContext?: boolean;
+  };
+  return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
+}
+
+function getMicUnsupportedReason(): string | null {
+  if (typeof window === 'undefined') return 'Loading…';
+  const w = window as unknown as { isSecureContext?: boolean };
+  if (w.isSecureContext === false) {
+    return 'Voice input needs HTTPS or localhost. Open this page via https:// or http://localhost.';
+  }
+  if (!getSpeechRecognition()) {
+    return 'Voice input not supported in this browser. Use Chrome, Edge, or Safari (on HTTPS or localhost).';
+  }
+  return null;
 }
 
 function ChatWithTransport({ restaurantId, conversationId }: ChatWithTransportProps) {
@@ -105,18 +120,26 @@ function ChatWithTransport({ restaurantId, conversationId }: ChatWithTransportPr
   const [isVoiceEnabled, setIsVoiceEnabled] = useState(true);
   const [isListening, setIsListening] = useState(false);
   const [isSpeechSupported, setIsSpeechSupported] = useState(false);
+  const [micUnsupportedReason, setMicUnsupportedReason] = useState<string | null>(null);
   const [micError, setMicError] = useState<string | null>(null);
   const recognitionRef = useRef<InstanceType<SpeechRecognitionConstructor> | null>(null);
 
   useEffect(() => {
-    setIsSpeechSupported(Boolean(getSpeechRecognition()));
+    const reason = getMicUnsupportedReason();
+    setMicUnsupportedReason(reason);
+    setIsSpeechSupported(reason === null);
   }, []);
 
   const startListening = () => {
     setMicError(null);
+    const reason = getMicUnsupportedReason();
+    if (reason && reason !== 'Loading…') {
+      setMicError(reason);
+      return;
+    }
     const SpeechRecognition = getSpeechRecognition();
     if (!SpeechRecognition) {
-      setMicError('Voice input not supported in this browser. Try Chrome or Edge.');
+      setMicError('Voice input not supported. Use Chrome, Edge, or Safari on HTTPS or localhost.');
       return;
     }
     if (isLoading) return;
@@ -313,8 +336,10 @@ function ChatWithTransport({ restaurantId, conversationId }: ChatWithTransportPr
       </CardContent>
 
       <CardFooter className="p-4 border-t flex flex-col gap-2">
-        {micError && (
-          <p className="text-xs text-destructive">{micError}</p>
+        {(micError || (micUnsupportedReason && micUnsupportedReason !== 'Loading…')) && (
+          <p className="text-xs text-destructive">
+            {micError ?? micUnsupportedReason}
+          </p>
         )}
         <form onSubmit={handleSubmit} className="flex w-full gap-2">
           <Input
@@ -332,8 +357,8 @@ function ChatWithTransport({ restaurantId, conversationId }: ChatWithTransportPr
             onClick={isListening ? stopListening : startListening}
             disabled={isLoading || !isSpeechSupported}
             title={
-              !isSpeechSupported
-                ? 'Voice input not supported (use Chrome or Edge, and HTTPS or localhost)'
+              !isSpeechSupported && micUnsupportedReason
+                ? micUnsupportedReason
                 : isListening
                   ? 'Stop listening'
                   : 'Speak'
