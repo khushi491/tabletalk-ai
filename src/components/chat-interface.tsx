@@ -90,7 +90,7 @@ type SpeechRecognitionConstructor = new () => {
   lang: string;
   onresult: ((event: { results: SpeechRecognitionResultList }) => void) | null;
   onend: (() => void) | null;
-  onerror: (() => void) | null;
+  onerror: ((event: unknown) => void) | null;
 };
 
 function getSpeechRecognition(): SpeechRecognitionConstructor | null {
@@ -105,6 +105,7 @@ function ChatWithTransport({ restaurantId, conversationId }: ChatWithTransportPr
   const [isVoiceEnabled, setIsVoiceEnabled] = useState(true);
   const [isListening, setIsListening] = useState(false);
   const [isSpeechSupported, setIsSpeechSupported] = useState(false);
+  const [micError, setMicError] = useState<string | null>(null);
   const recognitionRef = useRef<InstanceType<SpeechRecognitionConstructor> | null>(null);
 
   useEffect(() => {
@@ -112,8 +113,13 @@ function ChatWithTransport({ restaurantId, conversationId }: ChatWithTransportPr
   }, []);
 
   const startListening = () => {
+    setMicError(null);
     const SpeechRecognition = getSpeechRecognition();
-    if (!SpeechRecognition || isLoading) return;
+    if (!SpeechRecognition) {
+      setMicError('Voice input not supported in this browser. Try Chrome or Edge.');
+      return;
+    }
+    if (isLoading) return;
     const recognition = new SpeechRecognition();
     recognition.continuous = false;
     recognition.interimResults = true;
@@ -122,16 +128,32 @@ function ChatWithTransport({ restaurantId, conversationId }: ChatWithTransportPr
       const results = event.results;
       const transcript = Array.from(results)
         .map((r) => r[0].transcript)
-        .join('');
-      if (results[results.length - 1].isFinal) {
-        setInputValue((prev) => (prev ? `${prev} ${transcript}` : transcript).trim());
+        .join('')
+        .trim();
+      if (transcript) {
+        setInputValue(transcript);
       }
     };
     recognition.onend = () => setIsListening(false);
-    recognition.onerror = () => setIsListening(false);
+    recognition.onerror = (event: unknown) => {
+      setIsListening(false);
+      const e = event as { error?: string };
+      if (e.error === 'not-allowed') {
+        setMicError('Microphone access denied. Allow mic in your browser to speak.');
+      } else if (e.error === 'no-speech') {
+        setMicError('No speech heard. Try again.');
+      } else if (e.error) {
+        setMicError(`Listening failed: ${e.error}`);
+      }
+    };
     recognitionRef.current = recognition;
-    recognition.start();
-    setIsListening(true);
+    try {
+      recognition.start();
+      setIsListening(true);
+    } catch (err) {
+      setMicError('Could not start microphone. Check permission or try again.');
+      setIsListening(false);
+    }
   };
 
   const stopListening = () => {
@@ -290,7 +312,10 @@ function ChatWithTransport({ restaurantId, conversationId }: ChatWithTransportPr
         </ScrollArea>
       </CardContent>
 
-      <CardFooter className="p-4 border-t">
+      <CardFooter className="p-4 border-t flex flex-col gap-2">
+        {micError && (
+          <p className="text-xs text-destructive">{micError}</p>
+        )}
         <form onSubmit={handleSubmit} className="flex w-full gap-2">
           <Input
             value={inputValue}
@@ -300,23 +325,27 @@ function ChatWithTransport({ restaurantId, conversationId }: ChatWithTransportPr
             autoFocus
             disabled={isLoading}
           />
-          {isSpeechSupported && (
-            <Button
-              type="button"
-              variant={isListening ? 'default' : 'outline'}
-              size="icon"
-              onClick={isListening ? stopListening : startListening}
-              disabled={isLoading}
-              title={isListening ? 'Stop listening' : 'Speak'}
-            >
-              {isListening ? (
-                <MicOff className="h-4 w-4" />
-              ) : (
-                <Mic className="h-4 w-4" />
-              )}
-              <span className="sr-only">{isListening ? 'Stop listening' : 'Speak'}</span>
-            </Button>
-          )}
+          <Button
+            type="button"
+            variant={isListening ? 'default' : 'outline'}
+            size="icon"
+            onClick={isListening ? stopListening : startListening}
+            disabled={isLoading || !isSpeechSupported}
+            title={
+              !isSpeechSupported
+                ? 'Voice input not supported (use Chrome or Edge, and HTTPS or localhost)'
+                : isListening
+                  ? 'Stop listening'
+                  : 'Speak'
+            }
+          >
+            {isListening ? (
+              <MicOff className="h-4 w-4" />
+            ) : (
+              <Mic className="h-4 w-4" />
+            )}
+            <span className="sr-only">{isListening ? 'Stop listening' : 'Speak'}</span>
+          </Button>
           <Button
             type="submit"
             size="icon"
