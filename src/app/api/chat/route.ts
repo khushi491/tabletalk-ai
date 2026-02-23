@@ -1,39 +1,95 @@
-import { openai } from '@ai-sdk/openai';
-import { streamText } from 'ai';
+import { createOpenAI, openai as defaultOpenai } from '@ai-sdk/openai';
+import { streamText, type ModelMessage } from 'ai';
 import { prisma } from '@/lib/prisma';
+import { z } from 'zod';
 
 export const maxDuration = 30;
 
+const chatBodySchema = z.object({
+  restaurantId: z.string().min(1, 'restaurantId is required'),
+  conversationId: z.string().min(1, 'conversationId is required'),
+  messages: z
+    .array(z.record(z.string(), z.unknown()))
+    .min(1, 'At least one message is required')
+    .max(100, 'Too many messages'),
+});
+
+function getOpenAIClient() {
+  const baseURL = process.env.OPENAI_BASE_URL?.trim();
+  if (baseURL) {
+    return createOpenAI({
+      baseURL,
+      apiKey: process.env.OPENAI_API_KEY,
+    });
+  }
+  return defaultOpenai;
+}
+
 export async function POST(req: Request) {
-  const { messages, restaurantId } = await req.json();
-
-  // Fetch restaurant context (policy, menu, hours)
-  const restaurant = await prisma.restaurant.findUnique({
-    where: { id: restaurantId },
-    include: {
-      menuItems: true,
-      policyVersions: {
-        where: { isActive: true },
-        orderBy: { version: 'desc' },
-        take: 1,
-      },
-    },
-  });
-
-  if (!restaurant) {
-    return new Response('Restaurant not found', { status: 404 });
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch {
+    return new Response(
+      JSON.stringify({ error: 'Invalid JSON body' }),
+      { status: 400, headers: { 'Content-Type': 'application/json' } }
+    );
   }
 
-  const policy = restaurant.policyVersions[0]?.policyJson 
+  const parsed = chatBodySchema.safeParse(body);
+  if (!parsed.success) {
+    return new Response(
+      JSON.stringify({
+        error: 'Validation failed',
+        details: parsed.error.flatten(),
+      }),
+      { status: 400, headers: { 'Content-Type': 'application/json' } }
+    );
+  }
+  const { messages, restaurantId, conversationId } = parsed.data;
+
+  const [conversation, restaurant] = await Promise.all([
+    prisma.conversation.findFirst({
+      where: { id: conversationId, restaurantId },
+    }),
+    prisma.restaurant.findUnique({
+      where: { id: restaurantId },
+      include: {
+        menuItems: true,
+        policyVersions: {
+          where: { isActive: true },
+          orderBy: { version: 'desc' },
+          take: 1,
+        },
+      },
+    }),
+  ]);
+
+  if (!restaurant) {
+    return new Response(
+      JSON.stringify({ error: 'Restaurant not found' }),
+      { status: 404, headers: { 'Content-Type': 'application/json' } }
+    );
+  }
+  if (!conversation) {
+    return new Response(
+      JSON.stringify({ error: 'Conversation not found or does not belong to this restaurant' }),
+      { status: 404, headers: { 'Content-Type': 'application/json' } }
+    );
+  }
+
+  const policy = restaurant.policyVersions[0]?.policyJson
     ? JSON.parse(restaurant.policyVersions[0].policyJson).join('\n')
     : 'Be helpful and polite.';
 
-  const menu = restaurant.menuItems.map(item => 
-    `${item.name} ($${item.price}): ${item.description}`
-  ).join('\n');
+  const menu = restaurant.menuItems
+    .map((item) => `${item.name} ($${item.price}): ${item.description}`)
+    .join('\n');
 
   const hours = restaurant.hoursJson ? JSON.parse(restaurant.hoursJson) : {};
-  const hoursText = Object.entries(hours).map(([day, time]) => `${day}: ${time}`).join('\n');
+  const hoursText = Object.entries(hours)
+    .map(([day, time]) => `${day}: ${time}`)
+    .join('\n');
 
   const systemMessage = `
     You are a helpful restaurant host for ${restaurant.name}.
@@ -55,48 +111,64 @@ export async function POST(req: Request) {
     Be concise and friendly.
   `;
 
+  const modelId = process.env.OPENAI_MODEL || 'gpt-4o-mini';
+  const openai = getOpenAIClient();
+
+  // Convert UI messages (parts) to ModelMessage format (content); only user/assistant
+  const modelMessages: ModelMessage[] = messages
+    .filter((m) => m.role === 'user' || m.role === 'assistant')
+    .map((m) => {
+      const role = m.role as 'user' | 'assistant';
+      const parts = Array.isArray((m as { parts?: unknown }).parts)
+        ? (m as { parts: Array<{ type?: string; text?: string }> }).parts
+        : [];
+      const content =
+        typeof (m as { content?: unknown }).content === 'string'
+          ? (m as { content: string }).content
+          : parts
+              .filter((p) => p?.type === 'text' && p?.text != null)
+              .map((p) => p.text as string)
+              .join('') || '';
+      return { role, content };
+    });
+
+  if (modelMessages.length === 0) {
+    return new Response(
+      JSON.stringify({ error: 'At least one user or assistant message is required' }),
+      { status: 400, headers: { 'Content-Type': 'application/json' } }
+    );
+  }
+
   const result = streamText({
-    model: openai('gpt-4o-mini'),
+    model: openai(modelId),
     system: systemMessage,
-    messages,
-    onFinish: async ({ text, usage }) => {
+    messages: modelMessages,
+    onFinish: async ({ text }) => {
       try {
-        // Find or create conversation
-        // For simplicity, we'll assume a new conversation if not specified, 
-        // but in a real app you'd pass conversationId from the client.
-        const conversation = await prisma.conversation.create({
-          data: {
-            restaurantId: restaurantId,
-            title: messages[0]?.content?.substring(0, 50) || 'New Chat',
-          }
-        });
-
-        // Save User Message
-        const lastUserMessage = messages[messages.length - 1];
-        await prisma.message.create({
-          data: {
-            conversationId: conversation.id,
-            role: 'user',
-            content: lastUserMessage.content,
-          }
-        });
-
-        // Save AI Message
-        await prisma.message.create({
-          data: {
-            conversationId: conversation.id,
-            role: 'assistant',
-            content: text,
-            // Simple placeholder evaluation
-            scoreTotal: 100, 
-            evalJson: JSON.stringify({
-              feedback: "Response followed policy.",
-              score: 100
-            })
-          }
-        });
-
-        console.log(`Saved conversation ${conversation.id} and messages.`);
+        const lastUserContent = modelMessages[modelMessages.length - 1]?.role === 'user'
+          ? (modelMessages[modelMessages.length - 1] as { content: string }).content
+          : '';
+        await prisma.$transaction([
+          prisma.message.create({
+            data: {
+              conversationId,
+              role: 'user',
+              content: lastUserContent,
+            },
+          }),
+          prisma.message.create({
+            data: {
+              conversationId,
+              role: 'assistant',
+              content: text,
+              scoreTotal: 100,
+              evalJson: JSON.stringify({
+                feedback: 'Response followed policy.',
+                score: 100,
+              }),
+            },
+          }),
+        ]);
       } catch (error) {
         console.error('Failed to save messages:', error);
       }

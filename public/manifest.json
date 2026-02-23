@@ -1,0 +1,17 @@
+{
+  "name": "TableTalk AI",
+  "short_name": "TableTalk",
+  "description": "Restaurant host assistant — menu, hours, reservations, and voice support.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#0a0a0a",
+  "icons": [
+    {
+      "src": "/next.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

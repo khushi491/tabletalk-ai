@@ -7,18 +7,83 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Send, User, Bot, Loader2, Volume2, VolumeX } from 'lucide-react';
 import { cn } from '@/lib/utils';
+
+/** Part that has text (e.g. text, reasoning) */
+function getPartText(part: { type: string; text?: string }): string {
+  return 'text' in part && typeof part.text === 'string' ? part.text : '';
+}
 
 interface ChatInterfaceProps {
   restaurantId: string;
 }
 
 export function ChatInterface({ restaurantId }: ChatInterfaceProps) {
+  const [conversationId, setConversationId] = useState<string | null>(null);
+  const [conversationReady, setConversationReady] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/conversations', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ restaurantId }),
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error('Failed to create conversation');
+        return res.json();
+      })
+      .then((data: { conversationId: string }) => {
+        if (!cancelled && data.conversationId) {
+          setConversationId(data.conversationId);
+          setConversationReady(true);
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) console.error('Create conversation error:', err);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [restaurantId]);
+
+  if (!conversationReady || !conversationId) {
+    return (
+      <Card className="flex flex-col h-full border-0 shadow-none sm:border sm:shadow-sm">
+        <CardHeader className="border-b px-6 py-4">
+          <CardTitle className="flex items-center gap-2">
+            <Avatar className="h-8 w-8">
+              <AvatarFallback><Bot className="h-5 w-5" /></AvatarFallback>
+            </Avatar>
+            <span className="block text-lg">TableTalk Host</span>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="flex-1 flex items-center justify-center">
+          <div className="text-center text-muted-foreground">
+            <Loader2 className="h-12 w-12 mx-auto mb-4 animate-spin opacity-50" />
+            <p>Starting conversation...</p>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <ChatWithTransport restaurantId={restaurantId} conversationId={conversationId} />
+  );
+}
+
+interface ChatWithTransportProps {
+  restaurantId: string;
+  conversationId: string;
+}
+
+function ChatWithTransport({ restaurantId, conversationId }: ChatWithTransportProps) {
   const [inputValue, setInputValue] = useState('');
   const [isVoiceEnabled, setIsVoiceEnabled] = useState(true);
-  
+
   const playText = async (text: string) => {
     if (!isVoiceEnabled) return;
     try {
@@ -31,28 +96,35 @@ export function ChatInterface({ restaurantId }: ChatInterfaceProps) {
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
       const audio = new Audio(url);
+      const revoke = () => URL.revokeObjectURL(url);
+      audio.addEventListener('ended', revoke, { once: true });
+      audio.addEventListener('error', revoke, { once: true });
       audio.play();
     } catch (error) {
       console.error('Audio playback error:', error);
     }
   };
 
-  const transport = useMemo(() => new TextStreamChatTransport({
-    api: '/api/chat',
-    body: { restaurantId }
-  }), [restaurantId]);
+  const transport = useMemo(
+    () =>
+      new TextStreamChatTransport({
+        api: '/api/chat',
+        body: { restaurantId, conversationId },
+      }),
+    [restaurantId, conversationId]
+  );
 
   const { messages, sendMessage, status } = useChat({
     transport,
     onFinish: ({ message }) => {
       if (message.role === 'assistant') {
         const text = message.parts
-          .filter(p => p.type === 'text')
-          .map(p => (p as any).text)
+          .filter((p): p is { type: 'text'; text: string } => p.type === 'text')
+          .map((p) => p.text)
           .join(' ');
         if (text) playText(text);
       }
-    }
+    },
   });
 
   const isLoading = status === 'submitted' || status === 'streaming';
@@ -65,7 +137,6 @@ export function ChatInterface({ restaurantId }: ChatInterfaceProps) {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputValue.trim() || isLoading) return;
-
     sendMessage({ text: inputValue });
     setInputValue('');
   };
@@ -75,7 +146,6 @@ export function ChatInterface({ restaurantId }: ChatInterfaceProps) {
       <CardHeader className="border-b px-6 py-4 flex flex-row items-center justify-between">
         <CardTitle className="flex items-center gap-2">
           <Avatar className="h-8 w-8">
-            <AvatarImage src="/bot-avatar.png" />
             <AvatarFallback><Bot className="h-5 w-5" /></AvatarFallback>
           </Avatar>
           <div>
@@ -83,11 +153,11 @@ export function ChatInterface({ restaurantId }: ChatInterfaceProps) {
             <span className="block text-xs font-normal text-muted-foreground">Always here to help</span>
           </div>
         </CardTitle>
-        <Button 
-          variant="ghost" 
-          size="icon" 
+        <Button
+          variant="ghost"
+          size="icon"
           onClick={() => setIsVoiceEnabled(!isVoiceEnabled)}
-          title={isVoiceEnabled ? "Disable Voice" : "Enable Voice"}
+          title={isVoiceEnabled ? 'Disable Voice' : 'Enable Voice'}
         >
           {isVoiceEnabled ? <Volume2 className="h-5 w-5" /> : <VolumeX className="h-5 w-5" />}
         </Button>
@@ -107,31 +177,31 @@ export function ChatInterface({ restaurantId }: ChatInterfaceProps) {
               <div
                 key={m.id}
                 className={cn(
-                  "flex w-full gap-3 max-w-[80%]",
-                  m.role === 'user' ? "ml-auto flex-row-reverse" : "mr-auto"
+                  'flex w-full gap-3 max-w-[80%]',
+                  m.role === 'user' ? 'ml-auto flex-row-reverse' : 'mr-auto'
                 )}
               >
-                <Avatar className={cn("h-8 w-8 mt-1", m.role === 'user' ? "bg-primary" : "bg-muted")}>
-                  <AvatarFallback className={m.role === 'user' ? "text-primary-foreground" : ""}>
+                <Avatar className={cn('h-8 w-8 mt-1', m.role === 'user' ? 'bg-primary' : 'bg-muted')}>
+                  <AvatarFallback className={m.role === 'user' ? 'text-primary-foreground' : ''}>
                     {m.role === 'user' ? <User className="h-4 w-4" /> : <Bot className="h-4 w-4" />}
                   </AvatarFallback>
                 </Avatar>
                 <div
                   className={cn(
-                    "rounded-lg px-4 py-2 text-sm",
+                    'rounded-lg px-4 py-2 text-sm',
                     m.role === 'user'
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-muted text-foreground"
+                      ? 'bg-primary text-primary-foreground'
+                      : 'bg-muted text-foreground'
                   )}
                 >
                   {m.parts.map((part, i) => {
                     if (part.type === 'text') {
-                      return <span key={i}>{part.text}</span>;
+                      return <span key={i}>{getPartText(part)}</span>;
                     }
                     if (part.type === 'reasoning') {
                       return (
                         <div key={i} className="text-xs italic opacity-70 mb-1">
-                          {part.text}
+                          {getPartText(part)}
                         </div>
                       );
                     }
@@ -142,7 +212,7 @@ export function ChatInterface({ restaurantId }: ChatInterfaceProps) {
             ))}
             {isLoading && (
               <div className="flex w-full gap-3 max-w-[80%] mr-auto">
-                 <Avatar className="h-8 w-8 mt-1 bg-muted">
+                <Avatar className="h-8 w-8 mt-1 bg-muted">
                   <AvatarFallback><Bot className="h-4 w-4" /></AvatarFallback>
                 </Avatar>
                 <div className="rounded-lg px-4 py-2 text-sm bg-muted text-foreground flex items-center">
@@ -164,8 +234,13 @@ export function ChatInterface({ restaurantId }: ChatInterfaceProps) {
             placeholder="Ask about reservations, menu, etc..."
             className="flex-1"
             autoFocus
+            disabled={isLoading}
           />
-          <Button type="submit" size="icon" disabled={isLoading || !inputValue.trim()}>
+          <Button
+            type="submit"
+            size="icon"
+            disabled={isLoading || !inputValue.trim()}
+          >
             <Send className="h-4 w-4" />
             <span className="sr-only">Send</span>
           </Button>

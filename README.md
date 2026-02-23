@@ -5,10 +5,10 @@ A hackathon-ready restaurant host/concierge that improves over time using evals 
 ## Features
 
 - **Host Assistant**: Handles wait times, hours, location, reservations, menu questions, allergies, pickup status, and basic complaints.
-- **Self-Improving Loop**: Evaluator scores output and violations, Patcher updates "Host Policy", and next replies use the latest policy.
+- **Self-Improving Loop** (planned): Evaluator scores output and violations, Patcher updates "Host Policy", and next replies use the latest policy.
 - **Voice Output**: Uses ElevenLabs TTS for assistant replies.
 - **Restaurant Management**: Manage restaurant profiles, menus, and view policy history.
-- **PWA Support**: Can be installed on mobile devices.
+- **PWA Support**: Web app manifest for installability on supported browsers (e.g. Add to Home Screen).
 
 ## Tech Stack
 
