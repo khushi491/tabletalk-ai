@@ -123,6 +123,7 @@ function ChatWithTransport({ restaurantId, conversationId }: ChatWithTransportPr
   const [micUnsupportedReason, setMicUnsupportedReason] = useState<string | null>(null);
   const [micError, setMicError] = useState<string | null>(null);
   const recognitionRef = useRef<InstanceType<SpeechRecognitionConstructor> | null>(null);
+  const transcriptRef = useRef('');
 
   useEffect(() => {
     const reason = getMicUnsupportedReason();
@@ -130,8 +131,9 @@ function ChatWithTransport({ restaurantId, conversationId }: ChatWithTransportPr
     setIsSpeechSupported(reason === null);
   }, []);
 
-  const startListening = () => {
+  const startListening = (sendMessage: (opts: { text: string }) => void) => {
     setMicError(null);
+    transcriptRef.current = '';
     const reason = getMicUnsupportedReason();
     if (reason && reason !== 'Loading…') {
       setMicError(reason);
@@ -154,10 +156,19 @@ function ChatWithTransport({ restaurantId, conversationId }: ChatWithTransportPr
         .join('')
         .trim();
       if (transcript) {
+        transcriptRef.current = transcript;
         setInputValue(transcript);
       }
     };
-    recognition.onend = () => setIsListening(false);
+    recognition.onend = () => {
+      setIsListening(false);
+      const text = transcriptRef.current.trim();
+      if (text) {
+        sendMessage({ text });
+        setInputValue('');
+        transcriptRef.current = '';
+      }
+    };
     recognition.onerror = (event: unknown) => {
       setIsListening(false);
       const e = event as { error?: string };
@@ -259,7 +270,7 @@ function ChatWithTransport({ restaurantId, conversationId }: ChatWithTransportPr
           </Avatar>
           <div>
             <span className="block text-lg">TableTalk Host</span>
-            <span className="block text-xs font-normal text-muted-foreground">Always here to help</span>
+            <span className="block text-xs font-normal text-muted-foreground">Tap mic, speak, then hear the reply</span>
           </div>
         </CardTitle>
         <Button
@@ -279,7 +290,8 @@ function ChatWithTransport({ restaurantId, conversationId }: ChatWithTransportPr
               <div className="text-center text-muted-foreground py-10">
                 <Bot className="h-12 w-12 mx-auto mb-4 opacity-20" />
                 <p>Hello! I&apos;m the virtual host for this restaurant.</p>
-                <p>Ask me about our menu, hours, or policies.</p>
+                <p>Tap the mic, speak your question, then listen for the reply.</p>
+                <p className="text-xs mt-2">You can also type and press Send.</p>
               </div>
             )}
             {messages.map((m) => (
@@ -354,7 +366,7 @@ function ChatWithTransport({ restaurantId, conversationId }: ChatWithTransportPr
             type="button"
             variant={isListening ? 'default' : 'outline'}
             size="icon"
-            onClick={isListening ? stopListening : startListening}
+            onClick={isListening ? stopListening : () => startListening(sendMessage)}
             disabled={isLoading || !isSpeechSupported}
             title={
               !isSpeechSupported && micUnsupportedReason
