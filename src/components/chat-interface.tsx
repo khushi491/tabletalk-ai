@@ -144,6 +144,7 @@ function ChatWithTransport({ restaurantId, conversationId }: ChatWithTransportPr
   const [isSpeechSupported, setIsSpeechSupported] = useState(false);
   const [micUnsupportedReason, setMicUnsupportedReason] = useState<string | null>(null);
   const [micError, setMicError] = useState<string | null>(null);
+  const [ttsError, setTtsError] = useState<string | null>(null);
   const recognitionRef = useRef<InstanceType<SpeechRecognitionConstructor> | null>(null);
   const transcriptRef = useRef('');
 
@@ -228,13 +229,24 @@ function ChatWithTransport({ restaurantId, conversationId }: ChatWithTransportPr
 
   const playText = async (text: string) => {
     if (!isVoiceEnabled) return;
+    setTtsError(null);
     try {
       const response = await fetch('/api/tts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text }),
       });
-      if (!response.ok) throw new Error('TTS failed');
+      if (!response.ok) {
+        let message = 'Voice playback failed.';
+        try {
+          const data = await response.json();
+          if (data?.error) message = typeof data.error === 'string' ? data.error : message;
+        } catch {
+          // use default
+        }
+        setTtsError(message);
+        return;
+      }
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
       const audio = new Audio(url);
@@ -244,6 +256,7 @@ function ChatWithTransport({ restaurantId, conversationId }: ChatWithTransportPr
       audio.play();
     } catch (error) {
       console.error('Audio playback error:', error);
+      setTtsError('Voice playback failed. Please try again.');
     }
   };
 
@@ -298,7 +311,10 @@ function ChatWithTransport({ restaurantId, conversationId }: ChatWithTransportPr
         <Button
           variant="ghost"
           size="icon"
-          onClick={() => setIsVoiceEnabled(!isVoiceEnabled)}
+          onClick={() => {
+            setIsVoiceEnabled(!isVoiceEnabled);
+            setTtsError(null);
+          }}
           title={isVoiceEnabled ? 'Disable Voice' : 'Enable Voice'}
         >
           {isVoiceEnabled ? <Volume2 className="h-5 w-5" /> : <VolumeX className="h-5 w-5" />}
@@ -370,9 +386,9 @@ function ChatWithTransport({ restaurantId, conversationId }: ChatWithTransportPr
       </CardContent>
 
       <CardFooter className="p-4 border-t flex flex-col gap-2">
-        {(micError || (micUnsupportedReason && micUnsupportedReason !== 'Loading…')) && (
+        {(micError || ttsError || (micUnsupportedReason && micUnsupportedReason !== 'Loading…')) && (
           <p className="text-xs text-destructive">
-            {micError ?? micUnsupportedReason}
+            {micError ?? ttsError ?? micUnsupportedReason}
           </p>
         )}
         <form onSubmit={handleSubmit} className="flex w-full gap-2">
