@@ -7,7 +7,7 @@ export async function POST(req: Request) {
     const { text } = await req.json();
 
     if (!text || typeof text !== 'string') {
-      return new Response('Text is required', { status: 400 });
+      return NextResponse.json({ error: 'Text is required' }, { status: 400 });
     }
 
     const apiKey = process.env.OPENAI_API_KEY;
