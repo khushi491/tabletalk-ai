@@ -30,3 +30,7 @@ A hackathon-ready restaurant host/concierge that improves over time using evals 
 ## Environment Variables
 
 See `.env.example` for the list of required environment variables.
+
+## Planned
+
+- **Self-improving loop**: Evaluator to score assistant output and policy violations, plus a Patcher to update the Host Policy from low scores; new replies would then use the updated policy. The app already stores policy versions and messages; this would add the evaluation and policy-patch pipeline.
