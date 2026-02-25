@@ -23,9 +23,14 @@ interface ChatInterfaceProps {
 export function ChatInterface({ restaurantId }: ChatInterfaceProps) {
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [conversationReady, setConversationReady] = useState(false);
+  const [createLoading, setCreateLoading] = useState(true);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [retryTrigger, setRetryTrigger] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
+    setCreateLoading(true);
+    setCreateError(null);
     fetch('/api/conversations', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -39,15 +44,21 @@ export function ChatInterface({ restaurantId }: ChatInterfaceProps) {
         if (!cancelled && data.conversationId) {
           setConversationId(data.conversationId);
           setConversationReady(true);
+          setCreateError(null);
         }
+        if (!cancelled) setCreateLoading(false);
       })
       .catch((err) => {
-        if (!cancelled) console.error('Create conversation error:', err);
+        if (!cancelled) {
+          console.error('Create conversation error:', err);
+          setCreateError('Couldn’t start chat. Please try again.');
+          setCreateLoading(false);
+        }
       });
     return () => {
       cancelled = true;
     };
-  }, [restaurantId]);
+  }, [restaurantId, retryTrigger]);
 
   if (!conversationReady || !conversationId) {
     return (
@@ -62,8 +73,19 @@ export function ChatInterface({ restaurantId }: ChatInterfaceProps) {
         </CardHeader>
         <CardContent className="flex-1 flex items-center justify-center">
           <div className="text-center text-muted-foreground">
-            <Loader2 className="h-12 w-12 mx-auto mb-4 animate-spin opacity-50" />
-            <p>Starting conversation...</p>
+            {createError ? (
+              <>
+                <p className="text-destructive mb-4">{createError}</p>
+                <Button onClick={() => setRetryTrigger((t) => t + 1)} variant="outline">
+                  Retry
+                </Button>
+              </>
+            ) : (
+              <>
+                <Loader2 className="h-12 w-12 mx-auto mb-4 animate-spin opacity-50" />
+                <p>Starting conversation...</p>
+              </>
+            )}
           </div>
         </CardContent>
       </Card>
