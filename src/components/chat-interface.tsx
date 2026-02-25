@@ -20,12 +20,17 @@ interface ChatInterfaceProps {
   restaurantId: string;
 }
 
+type ConversationItem = { id: string; title: string | null; createdAt: string };
+type MessageItem = { role: string; content: string };
+
 export function ChatInterface({ restaurantId }: ChatInterfaceProps) {
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [conversationReady, setConversationReady] = useState(false);
   const [createLoading, setCreateLoading] = useState(true);
   const [createError, setCreateError] = useState<string | null>(null);
   const [retryTrigger, setRetryTrigger] = useState(0);
+  const [conversationList, setConversationList] = useState<ConversationItem[]>([]);
+  const [loadedMessages, setLoadedMessages] = useState<MessageItem[] | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -45,6 +50,7 @@ export function ChatInterface({ restaurantId }: ChatInterfaceProps) {
           setConversationId(data.conversationId);
           setConversationReady(true);
           setCreateError(null);
+          setLoadedMessages(null);
         }
         if (!cancelled) setCreateLoading(false);
       })
@@ -59,6 +65,43 @@ export function ChatInterface({ restaurantId }: ChatInterfaceProps) {
       cancelled = true;
     };
   }, [restaurantId, retryTrigger]);
+
+  useEffect(() => {
+    if (!conversationReady || !restaurantId) return;
+    fetch(`/api/conversations?restaurantId=${encodeURIComponent(restaurantId)}`)
+      .then((res) => (res.ok ? res.json() : []))
+      .then((list: ConversationItem[]) => setConversationList(Array.isArray(list) ? list : []))
+      .catch(() => setConversationList([]));
+  }, [conversationReady, restaurantId]);
+
+  const handleSelectConversation = (id: string) => {
+    if (id === conversationId) return;
+    setConversationId(id);
+    setLoadedMessages(null);
+    fetch(`/api/conversations/${encodeURIComponent(id)}/messages`)
+      .then((res) => (res.ok ? res.json() : []))
+      .then((msgs: MessageItem[]) => setLoadedMessages(Array.isArray(msgs) ? msgs : []))
+      .catch(() => setLoadedMessages([]));
+  };
+
+  const handleNewChat = () => {
+    fetch('/api/conversations', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ restaurantId }),
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: { conversationId: string } | null) => {
+        if (data?.conversationId) {
+          setConversationId(data.conversationId);
+          setLoadedMessages(null);
+          fetch(`/api/conversations?restaurantId=${encodeURIComponent(restaurantId)}`)
+            .then((r) => (r.ok ? r.json() : []))
+            .then((list: ConversationItem[]) => setConversationList(Array.isArray(list) ? list : []));
+        }
+      })
+      .catch(() => {});
+  };
 
   if (!conversationReady || !conversationId) {
     return (
@@ -93,13 +136,27 @@ export function ChatInterface({ restaurantId }: ChatInterfaceProps) {
   }
 
   return (
-    <ChatWithTransport restaurantId={restaurantId} conversationId={conversationId} />
+    <ChatWithTransport
+      key={conversationId}
+      restaurantId={restaurantId}
+      conversationId={conversationId}
+      initialMessages={loadedMessages ?? undefined}
+      conversationList={conversationList}
+      currentConversationId={conversationId}
+      onSelectConversation={handleSelectConversation}
+      onNewChat={handleNewChat}
+    />
   );
 }
 
 interface ChatWithTransportProps {
   restaurantId: string;
   conversationId: string;
+  initialMessages?: MessageItem[];
+  conversationList: ConversationItem[];
+  currentConversationId: string;
+  onSelectConversation: (id: string) => void;
+  onNewChat: () => void;
 }
 
 type SpeechRecognitionResultList = Array<{ length: number; isFinal: boolean; 0: { transcript: string } }>;
@@ -137,7 +194,15 @@ function getMicUnsupportedReason(): string | null {
   return null;
 }
 
-function ChatWithTransport({ restaurantId, conversationId }: ChatWithTransportProps) {
+function ChatWithTransport({
+  restaurantId,
+  conversationId,
+  initialMessages,
+  conversationList,
+  currentConversationId,
+  onSelectConversation,
+  onNewChat,
+}: ChatWithTransportProps) {
   const [inputValue, setInputValue] = useState('');
   const [isVoiceEnabled, setIsVoiceEnabled] = useState(true);
   const [isListening, setIsListening] = useState(false);
@@ -269,7 +334,7 @@ function ChatWithTransport({ restaurantId, conversationId }: ChatWithTransportPr
     [restaurantId, conversationId]
   );
 
-  const { messages, sendMessage, status, error: chatError } = useChat({
+  const { messages, sendMessage, status, error: chatError, setMessages } = useChat({
     transport,
     onFinish: ({ message }) => {
       if (message.role === 'assistant') {
@@ -286,6 +351,17 @@ function ChatWithTransport({ restaurantId, conversationId }: ChatWithTransportPr
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    if (initialMessages?.length) {
+      const converted = initialMessages.map((m, i) => ({
+        id: `load-${i}-${m.role}`,
+        role: m.role as 'user' | 'assistant',
+        parts: [{ type: 'text' as const, text: m.content }],
+      }));
+      setMessages(converted);
+    }
+  }, [initialMessages, setMessages]);
+
+  useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
@@ -298,16 +374,35 @@ function ChatWithTransport({ restaurantId, conversationId }: ChatWithTransportPr
 
   return (
     <Card className="flex flex-col h-full border-0 shadow-none sm:border sm:shadow-sm">
-      <CardHeader className="border-b px-6 py-4 flex flex-row items-center justify-between">
-        <CardTitle className="flex items-center gap-2">
-          <Avatar className="h-8 w-8">
+      <CardHeader className="border-b px-6 py-4 flex flex-row items-center justify-between gap-2">
+        <CardTitle className="flex items-center gap-2 flex-1 min-w-0">
+          <Avatar className="h-8 w-8 shrink-0">
             <AvatarFallback><Bot className="h-5 w-5" /></AvatarFallback>
           </Avatar>
-          <div>
+          <div className="min-w-0 flex-1">
             <span className="block text-lg">TableTalk Host</span>
             <span className="block text-xs font-normal text-muted-foreground">Tap mic, speak, then hear the reply</span>
           </div>
         </CardTitle>
+        <div className="flex items-center gap-2 shrink-0">
+          <select
+            className="text-xs rounded-md border border-input bg-background px-2 py-1.5 max-w-[140px] truncate"
+            value={currentConversationId}
+            onChange={(e) => {
+              const v = e.target.value;
+              if (v === '__new__') onNewChat();
+              else onSelectConversation(v);
+            }}
+            title="Switch conversation"
+          >
+            <option value="__new__">+ New chat</option>
+            {conversationList.map((c) => (
+              <option key={c.id} value={c.id}>
+                {(c.title || 'Chat').slice(0, 18)}{c.id === currentConversationId ? ' (current)' : ''}
+              </option>
+            ))}
+          </select>
+        </div>
         <Button
           variant="ghost"
           size="icon"

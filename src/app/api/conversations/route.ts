@@ -6,6 +6,26 @@ const createConversationSchema = z.object({
   restaurantId: z.string().min(1, 'restaurantId is required'),
 });
 
+export async function GET(req: Request) {
+  try {
+    const { searchParams } = new URL(req.url);
+    const restaurantId = searchParams.get('restaurantId');
+    if (!restaurantId) {
+      return NextResponse.json({ error: 'restaurantId is required' }, { status: 400 });
+    }
+    const conversations = await prisma.conversation.findMany({
+      where: { restaurantId },
+      orderBy: { createdAt: 'desc' },
+      take: 20,
+      select: { id: true, title: true, createdAt: true },
+    });
+    return NextResponse.json(conversations);
+  } catch (error) {
+    console.error('List conversations error:', error);
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+  }
+}
+
 export async function POST(req: Request) {
   try {
     const body = await req.json();
