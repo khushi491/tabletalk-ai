@@ -269,7 +269,7 @@ function ChatWithTransport({ restaurantId, conversationId }: ChatWithTransportPr
     [restaurantId, conversationId]
   );
 
-  const { messages, sendMessage, status } = useChat({
+  const { messages, sendMessage, status, error: chatError } = useChat({
     transport,
     onFinish: ({ message }) => {
       if (message.role === 'assistant') {
@@ -386,9 +386,9 @@ function ChatWithTransport({ restaurantId, conversationId }: ChatWithTransportPr
       </CardContent>
 
       <CardFooter className="p-4 border-t flex flex-col gap-2">
-        {(micError || ttsError || (micUnsupportedReason && micUnsupportedReason !== 'Loading…')) && (
+        {(micError || ttsError || chatError || (micUnsupportedReason && micUnsupportedReason !== 'Loading…')) && (
           <p className="text-xs text-destructive">
-            {micError ?? ttsError ?? micUnsupportedReason}
+            {micError ?? ttsError ?? (chatError ? (chatError.message || 'Something went wrong. Check your API key or try again.') : null) ?? micUnsupportedReason}
           </p>
         )}
         <form onSubmit={handleSubmit} className="flex w-full gap-2">
