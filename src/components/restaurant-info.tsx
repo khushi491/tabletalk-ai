@@ -76,7 +76,7 @@ export function RestaurantInfo({ restaurant }: RestaurantInfoProps) {
 
               <div className="space-y-4">
                 <h3 className="font-semibold">Menu</h3>
-                {restaurant.menuItems.map((item) => {
+                {restaurant.menuItems.map((item: MenuItem) => {
                   const allergens = item.allergensJson ? JSON.parse(item.allergensJson) : [];
                   const tags = item.tagsJson ? JSON.parse(item.tagsJson) : [];
                   

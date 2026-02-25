@@ -9,7 +9,13 @@ const chatBodySchema = z.object({
   restaurantId: z.string().min(1, 'restaurantId is required'),
   conversationId: z.string().min(1, 'conversationId is required'),
   messages: z
-    .array(z.record(z.string(), z.unknown()))
+    .array(
+      z.object({
+        role: z.enum(['user', 'assistant', 'system', 'data']),
+        content: z.string().optional(),
+        parts: z.array(z.any()).optional(),
+      })
+    )
     .min(1, 'At least one message is required')
     .max(100, 'Too many messages'),
 });
@@ -121,16 +127,13 @@ export async function POST(req: Request) {
     .filter((m) => m.role === 'user' || m.role === 'assistant')
     .map((m) => {
       const role = m.role as 'user' | 'assistant';
-      const parts = Array.isArray((m as { parts?: unknown }).parts)
-        ? (m as { parts: Array<{ type?: string; text?: string }> }).parts
-        : [];
       const content =
-        typeof (m as { content?: unknown }).content === 'string'
-          ? (m as { content: string }).content
-          : parts
-              .filter((p) => p?.type === 'text' && p?.text != null)
-              .map((p) => p.text as string)
-              .join('') || '';
+        m.content ||
+        m.parts
+          ?.filter((p: any) => p?.type === 'text' && p?.text != null)
+          .map((p: any) => p.text as string)
+          .join('') ||
+        '';
       return { role, content };
     });
 
