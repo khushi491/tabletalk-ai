@@ -83,7 +83,9 @@ export async function POST(req: Request) {
     : 'Be helpful and polite.';
 
   const menu = restaurant.menuItems
-    .map((item) => `${item.name} ($${item.price}): ${item.description}`)
+    .map((item: { name: string; price: number; description: string }) =>
+      `${item.name} ($${item.price}): ${item.description}`
+    )
     .join('\n');
 
   const hours = restaurant.hoursJson ? JSON.parse(restaurant.hoursJson) : {};
