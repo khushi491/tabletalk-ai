@@ -2,6 +2,28 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { z } from 'zod';
 
+// Simple in-memory rate limiter
+const rateLimitStore: Record<string, { count: number; lastRequest: number }> = {};
+const RATE_LIMIT_WINDOW = 60 * 1000; // 1 minute
+const MAX_REQUESTS_PER_WINDOW = 10;
+
+function isRateLimited(ip: string): boolean {
+  const now = Date.now();
+  const record = rateLimitStore[ip];
+
+  if (!record || now - record.lastRequest > RATE_LIMIT_WINDOW) {
+    rateLimitStore[ip] = { count: 1, lastRequest: now };
+    return false;
+  }
+
+  record.count++;
+  if (record.count > MAX_REQUESTS_PER_WINDOW) {
+    return true;
+  }
+
+  return false;
+}
+
 const createConversationSchema = z.object({
   restaurantId: z.string().min(1, 'restaurantId is required'),
 });
@@ -28,6 +50,11 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   try {
+    const ip = req.headers.get('x-forwarded-for') || 'unknown';
+    if (isRateLimited(ip)) {
+      return NextResponse.json({ error: 'Too many requests' }, { status: 429 });
+    }
+    
     const body = await req.json();
     const parsed = createConversationSchema.safeParse(body);
     if (!parsed.success) {
