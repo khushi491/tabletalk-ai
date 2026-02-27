@@ -194,6 +194,17 @@ function getMicUnsupportedReason(): string | null {
   return null;
 }
 
+const SUPPORTED_LANGUAGES = [
+  { label: 'English', value: 'English', code: 'en-US' },
+  { label: 'Spanish', value: 'Spanish', code: 'es-ES' },
+  { label: 'French', value: 'French', code: 'fr-FR' },
+  { label: 'German', value: 'German', code: 'de-DE' },
+  { label: 'Chinese', value: 'Mandarin Chinese', code: 'zh-CN' },
+  { label: 'Japanese', value: 'Japanese', code: 'ja-JP' },
+  { label: 'Hindi', value: 'Hindi', code: 'hi-IN' },
+  { label: 'Arabic', value: 'Arabic', code: 'ar-SA' },
+];
+
 function ChatWithTransport({
   restaurantId,
   conversationId,
@@ -204,6 +215,7 @@ function ChatWithTransport({
   onNewChat,
 }: ChatWithTransportProps) {
   const [inputValue, setInputValue] = useState('');
+  const [language, setLanguage] = useState(SUPPORTED_LANGUAGES[0]);
   const [isVoiceEnabled, setIsVoiceEnabled] = useState(true);
   const [isListening, setIsListening] = useState(false);
   const [isSpeechSupported, setIsSpeechSupported] = useState(false);
@@ -236,7 +248,7 @@ function ChatWithTransport({
     const recognition = new SpeechRecognition();
     recognition.continuous = false;
     recognition.interimResults = true;
-    recognition.lang = 'en-US';
+    recognition.lang = language.code;
     recognition.onresult = (event: { results: SpeechRecognitionResultList }) => {
       const results = event.results;
       const transcript = Array.from(results)
@@ -329,9 +341,9 @@ function ChatWithTransport({
     () =>
       new TextStreamChatTransport({
         api: '/api/chat',
-        body: { restaurantId, conversationId },
+        body: { restaurantId, conversationId, language: language.value },
       }),
-    [restaurantId, conversationId]
+    [restaurantId, conversationId, language.value]
   );
 
   const { messages, sendMessage, status, error: chatError, setMessages } = useChat({
@@ -385,6 +397,21 @@ function ChatWithTransport({
           </div>
         </CardTitle>
         <div className="flex items-center gap-2 shrink-0">
+          <select
+            className="text-xs rounded-md border border-input bg-background px-2 py-1.5 max-w-[100px] truncate"
+            value={language.value}
+            onChange={(e) => {
+              const selected = SUPPORTED_LANGUAGES.find((l) => l.value === e.target.value);
+              if (selected) setLanguage(selected);
+            }}
+            title="Select Language"
+          >
+            {SUPPORTED_LANGUAGES.map((l) => (
+              <option key={l.value} value={l.value}>
+                {l.label}
+              </option>
+            ))}
+          </select>
           <select
             className="text-xs rounded-md border border-input bg-background px-2 py-1.5 max-w-[140px] truncate"
             value={currentConversationId}

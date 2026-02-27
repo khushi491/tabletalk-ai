@@ -8,6 +8,7 @@ export const maxDuration = 30;
 const chatBodySchema = z.object({
   restaurantId: z.string().min(1, 'restaurantId is required'),
   conversationId: z.string().min(1, 'conversationId is required'),
+  language: z.string().optional(),
   messages: z
     .array(
       z.object({
@@ -52,7 +53,7 @@ export async function POST(req: Request) {
       { status: 400, headers: { 'Content-Type': 'application/json' } }
     );
   }
-  const { messages, restaurantId, conversationId } = parsed.data;
+  const { messages, restaurantId, conversationId, language = 'English' } = parsed.data;
 
   const [conversation, restaurant] = await Promise.all([
     prisma.conversation.findFirst({
@@ -117,6 +118,8 @@ export async function POST(req: Request) {
     
     If you don't know the answer, say you will check with a manager.
     Be concise and friendly.
+    
+    IMPORTANT: Always respond in ${language}.
   `;
 
   const modelId = process.env.OPENAI_MODEL || 'gpt-4o-mini';
