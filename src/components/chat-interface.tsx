@@ -234,16 +234,18 @@ function ChatWithTransport({
   const startListening = (sendMessage: (opts: { text: string }) => void) => {
     setMicError(null);
     transcriptRef.current = '';
-    const reason = getMicUnsupportedReason();
-    if (reason && reason !== 'Loading…') {
-      setMicError(reason);
+    
+    if (micUnsupportedReason) {
+      setMicError(micUnsupportedReason);
       return;
     }
+    
     const SpeechRecognition = getSpeechRecognition();
     if (!SpeechRecognition) {
-      setMicError('Voice input not supported. Use Chrome, Edge, or Safari on HTTPS or localhost.');
+      setMicError('Voice input not supported in this browser. Use Chrome, Edge, or Safari on HTTPS or localhost.');
       return;
     }
+    
     if (isLoading) return;
     const recognition = new SpeechRecognition();
     recognition.continuous = false;
